@@ -38,6 +38,8 @@
 #define PIN_BLINKER_BUTTON 0
 #define PIN_BLINKER_LED LED_BUILTIN
 
+#define SNIFFER_INTERVAL_MS 200
+
 // #define PIN_SNIFFER_IN   1
 // #define PIN_SNIFFER_OUT  2
 
@@ -55,13 +57,18 @@ void snifferOffCb();
 Task taskBlinker(500, TASK_FOREVER, &blinkerCb, &scheduler, false, NULL, &blinkerOffCb);
 Task taskBlinkerButton(30, TASK_FOREVER, &blinkerButtonCb, &scheduler, true);
 
-Task taskSniffer(0, TASK_FOREVER, &snifferCb, &scheduler, false, NULL, NULL);
+Task taskSniffer(SNIFFER_INTERVAL_MS, TASK_FOREVER, &snifferCb, &scheduler, false, NULL, NULL);
+// @TODO: create tasks for each
+// snifferManager (status, mode, speed, startTime, configuration) -> manage SoC execution (rename taskSniffer)
+// snifferFetch (on/off) -> fetch from xfader
+// snifferEmmit (on/off) -> emmit to xfader
+// snifferAdmin (name, token, etc.) -> admin SoC configuration
 
 
 uint8_t blinkerOn;
 uint8_t blinkerSpeed = 5;
 
-uint8_t snifferOn;
+uint8_t snifferOn = 0;
 uint8_t snifferSpeed = 1;
 
 
@@ -134,16 +141,32 @@ void setSniffer(bool on, bool notify = false) {
 
 void setSnifferSpeed(uint8_t v) {
   snifferSpeed = v;
-  taskSniffer.setInterval(v);
-  Serial.println("Sniffer speed updated");
+  taskSniffer.setInterval(snifferSpeed);
+  Serial.println("Sniffer speed updated to " + snifferSpeed);
+}
+
+uint8_t readVoltsFromCrossfader() {
+  // @TODO: read volts from analog input connected to the xfader output
+  uint8_t volts = taskSniffer.getRunCounter();
+
+  return volts;
 }
 
 void snifferCb() {
-  setSniffer(!snifferOn, true);
+  // setSniffer(!snifferOn, true);
+  Serial.print("Sniffer callback executed " + (String) millis());
+  Serial.println(" - times " + (String) taskSniffer.getRunCounter());
+
+  uint8_t volts = readVoltsFromCrossfader();
+  // uint8_t ts = millis();
+
+  pCharSnifferVoltage->setValue(&volts, 1);
+  pCharSnifferVoltage->notify();
 }
 
 void snifferOffCb() {
-  setSniffer(!snifferOn, true);
+  // setSniffer(!snifferOn, true);
+  Serial.println("Sniffer off callback executed");
 }
 
 class XfitServerCallbacks: public BLEServerCallbacks {
@@ -252,13 +275,22 @@ BLEServer* initBLEServer(String devName) {
 void createDeviceInfoService(BLEServer* pServer) {
   BLEService *pService = pServer->createService(SERVICE_DEVINFO_UUID);
 
-  BLECharacteristic *pChar = pService->createCharacteristic(DEVINFO_MANUFACTURER_UUID, BLECharacteristic::PROPERTY_READ);
+  BLECharacteristic *pChar = pService->createCharacteristic(
+    DEVINFO_MANUFACTURER_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
   pChar->setValue(DEVICE_MANUFACTURER);
 
-  pChar = pService->createCharacteristic(DEVINFO_NAME_UUID, BLECharacteristic::PROPERTY_READ);
+  pChar = pService->createCharacteristic(
+    DEVINFO_NAME_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
   pChar->setValue(DEVICE_NAME);
 
-  pChar = pService->createCharacteristic(DEVINFO_SERIAL_UUID, BLECharacteristic::PROPERTY_READ);
+  pChar = pService->createCharacteristic(
+    DEVINFO_SERIAL_UUID,
+    BLECharacteristic::PROPERTY_READ
+  );
   pChar->setValue(getDeviceChipId().c_str());
 
   pService->start();
@@ -267,11 +299,20 @@ void createDeviceInfoService(BLEServer* pServer) {
 void createBlinkerService(BLEServer* pServer) {
   BLEService *pService = pServer->createService(SERVICE_BLINKER_UUID);
 
-  pCharBlinkerBlink = pService->createCharacteristic(BLINKER_BLINK_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+  pCharBlinkerBlink = pService->createCharacteristic(
+    BLINKER_BLINK_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_NOTIFY |
+    BLECharacteristic::PROPERTY_WRITE
+  );
   pCharBlinkerBlink->setCallbacks(new BlinkerBlinkCallbacks());
   pCharBlinkerBlink->addDescriptor(new BLE2902());
 
-  pCharBlinkerSpeed = pService->createCharacteristic(BLINKER_SPEED_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
+  pCharBlinkerSpeed = pService->createCharacteristic(
+    BLINKER_SPEED_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_WRITE
+  );
   pCharBlinkerSpeed->setCallbacks(new BlinkerSpeedCallbacks());
   pCharBlinkerSpeed->setValue(&blinkerSpeed, 1);
 
@@ -281,16 +322,32 @@ void createBlinkerService(BLEServer* pServer) {
 void createSnifferService(BLEServer* pServer) {
   BLEService *pService = pServer->createService(SERVICE_SNIFFER_UUID);
 
-  pCharSnifferStatus = pService->createCharacteristic(SNIFFER_VOLTAGE_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+  pCharSnifferStatus = pService->createCharacteristic(
+    SNIFFER_VOLTAGE_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_NOTIFY |
+    BLECharacteristic::PROPERTY_WRITE
+  );
   pCharSnifferStatus->setCallbacks(new SnifferStatusCallbacks());
 
-  pCharSnifferSpeed = pService->createCharacteristic(SNIFFER_TIMESTAMP_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+  pCharSnifferSpeed = pService->createCharacteristic(
+    SNIFFER_TIMESTAMP_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_NOTIFY |
+    BLECharacteristic::PROPERTY_WRITE
+  );
   pCharSnifferSpeed->setCallbacks(new SnifferSpeedCallbacks());
   pCharBlinkerSpeed->setValue(&snifferSpeed, 1);
 
-  pCharSnifferVoltage = pService->createCharacteristic(SNIFFER_VOLTAGE_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pCharSnifferVoltage = pService->createCharacteristic(
+    SNIFFER_VOLTAGE_UUID,
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
 
-  pCharSnifferTimestamp = pService->createCharacteristic(SNIFFER_TIMESTAMP_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pCharSnifferTimestamp = pService->createCharacteristic(
+    SNIFFER_TIMESTAMP_UUID,
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
 
   pService->start();
 }
