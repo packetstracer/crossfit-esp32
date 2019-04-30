@@ -71,6 +71,8 @@ uint8_t blinkerSpeed = 5;
 uint8_t snifferOn = 0;
 uint8_t snifferSpeed = 1;
 
+bool randomSeedGenerated = false;
+
 
 BLECharacteristic *pCharBlinkerBlink;
 BLECharacteristic *pCharBlinkerSpeed;
@@ -145,22 +147,35 @@ void setSnifferSpeed(uint8_t v) {
   Serial.println("Sniffer speed updated to " + snifferSpeed);
 }
 
+uint8_t generateRandomNumber(uint8_t maxNumber) {
+  if (!randomSeedGenerated) {
+    srand((unsigned) millis());
+  }
+
+  return (std::rand() % maxNumber) + 1;
+}
+
 uint8_t readVoltsFromCrossfader() {
-  // @TODO: read volts from analog input connected to the xfader output
-  uint8_t volts = taskSniffer.getRunCounter();
+  // @TODO: read volts from analog input connected to the xfader output, now just generating random number
+  uint8_t maxVolts = 255;
+  uint8_t volts = generateRandomNumber(maxVolts);
 
   return volts;
 }
 
+String generatePackageInfo(uint8_t volts) {
+  unsigned long packetNumber = taskSniffer.getRunCounter();
+
+  return String(packetNumber) + ":" + String(volts) + ":" + String(millis());
+}
+
 void snifferCb() {
-  // setSniffer(!snifferOn, true);
-  Serial.print("Sniffer callback executed " + (String) millis());
-  Serial.println(" - times " + (String) taskSniffer.getRunCounter());
-
   uint8_t volts = readVoltsFromCrossfader();
-  // uint8_t ts = millis();
 
-  pCharSnifferVoltage->setValue(&volts, 1);
+  String packetInfo = generatePackageInfo(volts);
+  Serial.println("Notify value \"" + packetInfo + "\"");
+
+  pCharSnifferVoltage->setValue(packetInfo.c_str());
   pCharSnifferVoltage->notify();
 }
 
@@ -268,6 +283,10 @@ BLEServer* initBLEServer(String devName) {
   BLEDevice::init(devName.c_str());
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new XfitServerCallbacks());
+
+  // Set MTU size, in theory 23 is the maximum MTU but it's suppose that you can set it up to 512 but depends on both ends of the communication -> https://www.esp32.com/viewtopic.php?t=4546
+  //uint16_t mtu = 128;
+  //BLEDevice::setMTU(128);
 
   return pServer;
 }
